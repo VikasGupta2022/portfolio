@@ -5,9 +5,10 @@
  */
 
 // Determine backend API Base URL dynamically
-const API_BASE_URL = (window.location.port === "8000" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-    ? "" // Relative path when served via FastAPI backend
-    : "http://127.0.0.1:8000";
+// When served over HTTP/HTTPS (locally or cloud), relative paths hit the FastAPI backend directly
+const API_BASE_URL = (window.location.protocol === "file:")
+    ? "http://127.0.0.1:8000"
+    : "";
 
 // Fallback project data if API is offline
 const STATIC_PROJECTS = [

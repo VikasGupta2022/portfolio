@@ -13,7 +13,7 @@ class Settings:
     APP_ENV: str = os.getenv("APP_ENV", "development")
     APP_DEBUG: bool = os.getenv("APP_DEBUG", "true").lower() in ("true", "1", "yes")
     APP_HOST: str = os.getenv("APP_HOST", "0.0.0.0")
-    APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
+    APP_PORT: int = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
 
     # CORS
     raw_cors: str = os.getenv(
