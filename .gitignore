@@ -49,3 +49,7 @@ backend/portfolio_local.db
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Private credentials & notes
+vercel-notes.txt
+*.notes.txt
