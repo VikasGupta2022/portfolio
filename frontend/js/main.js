@@ -5,10 +5,9 @@
  */
 
 // Determine backend API Base URL dynamically
-// When served over HTTP/HTTPS (locally or cloud), relative paths hit the FastAPI backend directly
-const API_BASE_URL = (window.location.protocol === "file:")
-    ? "http://127.0.0.1:8000"
-    : "";
+const API_BASE_URL = (window.location.hostname.includes("vercel.app"))
+    ? "https://portfolio-1doj.onrender.com"
+    : (window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "");
 
 // Fallback project data if API is offline
 const STATIC_PROJECTS = [
