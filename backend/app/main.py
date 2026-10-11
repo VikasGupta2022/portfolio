@@ -81,7 +81,10 @@ if FRONTEND_DIR.exists():
     async def serve_index():
         index_file = FRONTEND_DIR / "index.html"
         if index_file.exists():
-            return FileResponse(str(index_file))
+            return FileResponse(
+                str(index_file),
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+            )
         return {"message": "Welcome to Vikas Gupta Portfolio API. Frontend index.html not found."}
 
 if __name__ == "__main__":

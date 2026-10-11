@@ -89,7 +89,7 @@ portfolio/
 
 Navigate to the project root:
 ```bash
-cd C:\Users\vikas\.gemini\antigravity-ide\scratch\portfolio
+cd C:\Users\vikas\portfolio
 ```
 
 Install the required Python packages:

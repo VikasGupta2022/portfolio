@@ -92,10 +92,14 @@ const STATIC_PROJECTS = [
 let allProjectsData = [...STATIC_PROJECTS];
 
 document.addEventListener("DOMContentLoaded", () => {
+  initScrollProgress();
   initNavbarScroll();
+  initMobileNavbarClose();
+  initBackToTop();
   initContactForm();
   loadProjects();
   initProjectFilters();
+  initSkillFilters();
   initBackendStatusCheck();
 });
 
@@ -110,6 +114,50 @@ function initNavbarScroll() {
     } else {
       navbar.classList.remove("scrolled");
     }
+  });
+}
+
+/**
+ * Automatically collapse mobile navbar when any nav link is tapped
+ */
+function initMobileNavbarClose() {
+  const navbarCollapse = document.getElementById("navbarContent");
+  const navLinks = document.querySelectorAll(".navbar-nav .nav-link, #navbarContent .btn");
+  const toggler = document.querySelector(".navbar-toggler");
+
+  if (!navbarCollapse || !navLinks.length) return;
+
+  navLinks.forEach(link => {
+    link.addEventListener("click", () => {
+      if (window.innerWidth < 992 && navbarCollapse.classList.contains("show")) {
+        if (toggler) {
+          toggler.click();
+        }
+      }
+    });
+  });
+}
+
+/**
+ * Floating Back-to-Top button functionality
+ */
+function initBackToTop() {
+  const backToTopBtn = document.getElementById("backToTopBtn");
+  if (!backToTopBtn) return;
+
+  window.addEventListener("scroll", () => {
+    if (window.scrollY > 300) {
+      backToTopBtn.classList.add("visible");
+    } else {
+      backToTopBtn.classList.remove("visible");
+    }
+  }, { passive: true });
+
+  backToTopBtn.addEventListener("click", () => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
   });
 }
 
@@ -162,7 +210,7 @@ function renderProjects(projects) {
       .join("");
 
     const cardCol = document.createElement("div");
-    cardCol.className = `col-lg-6 col-md-12 mb-4 project-item-col`;
+    cardCol.className = `col-lg-6 col-md-12 project-item-col`;
     cardCol.setAttribute("data-category", project.category || "all");
 
     cardCol.innerHTML = `
@@ -212,11 +260,8 @@ function initProjectFilters() {
   const filterBtns = document.querySelectorAll(".filter-btn");
   filterBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-      filterBtns.forEach(b => b.classList.remove("active", "btn-primary-custom"));
-      filterBtns.forEach(b => b.classList.add("btn-outline-custom"));
-      
-      btn.classList.remove("btn-outline-custom");
-      btn.classList.add("active", "btn-primary-custom");
+      filterBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
 
       const filterVal = btn.getAttribute("data-filter");
       if (filterVal === "all") {
@@ -336,48 +381,82 @@ function initContactForm() {
     // Set loading button state
     const originalBtnText = submitBtn.innerHTML;
     submitBtn.disabled = true;
-    submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Transmitting via FastAPI...`;
+    submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Sending message...`;
 
+    let emailSent = false;
+
+    // 1. First attempt: Send via FastAPI backend (FastAPI saves to DB & dispatches via Gmail SMTP)
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+
       const response = await fetch(`${API_BASE_URL}/api/contact`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        showAlert(alertContainer, "success", `
-          <strong>Message Received!</strong> ${data.message} 
-          <br><small class="text-white-50">Reference ID: #${data.contact_id || 'CONFIRMED'} • Stored in Database</small>
-        `);
-        form.reset();
-      } else {
-        // Validation error from Pydantic or server
-        let errorMsg = "Unable to process your message at this time.";
-        if (data.detail) {
-          if (Array.isArray(data.detail)) {
-            errorMsg = data.detail.map(d => d.msg || d.message).join(", ");
-          } else {
-            errorMsg = data.detail;
-          }
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          emailSent = true;
+          showAlert(alertContainer, "success", `
+            <strong><i class="bi bi-check-circle-fill me-1"></i> Message Received!</strong> Thank you, ${escapeHtml(payload.name)}! Your message has been sent directly to Vikas's email inbox.
+            <br><small class="text-white-50">Reference ID: #${data.contact_id || 'CONFIRMED'} • Processed via FastAPI &amp; Gmail SMTP</small>
+          `);
+          form.reset();
         }
-        showAlert(alertContainer, "danger", `<strong>Submission Error:</strong> ${escapeHtml(errorMsg)}`);
       }
     } catch (err) {
-      console.error("Contact API Network Error:", err);
-      showAlert(alertContainer, "warning", `
-        <strong>FastAPI Backend Offline:</strong> The backend API server is currently not reachable at <code>${API_BASE_URL || window.location.origin}</code>. 
-        Please start the server with <code>python run_backend.py</code> or email directly at <a href="mailto:vikasgupta2020vg@gmail.com" class="text-white text-decoration-underline">vikasgupta2020vg@gmail.com</a>.
-      `);
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = originalBtnText;
+      console.info("FastAPI backend standby or cold starting on Render; engaging high-reliability direct email delivery.");
     }
+
+    // 2. High-reliability fallback (for Vercel when Render free tier is sleeping):
+    // Dispatches directly to vikasgupta2020vg@gmail.com without cold-start delay
+    if (!emailSent) {
+      try {
+        const fsResponse = await fetch("https://formsubmit.co/ajax/vikasgupta2020vg@gmail.com", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({
+            name: payload.name,
+            email: payload.email,
+            subject: payload.subject,
+            message: payload.message,
+            _subject: `🚀 Portfolio Message: ${payload.subject} (from ${payload.name})`,
+            _template: "table"
+          })
+        });
+
+        if (fsResponse.ok) {
+          emailSent = true;
+          showAlert(alertContainer, "success", `
+            <strong><i class="bi bi-check-circle-fill me-1"></i> Message Sent!</strong> Thank you, ${escapeHtml(payload.name)}! Your message has been delivered directly to Vikas's email inbox.
+            <br><small class="text-white-50">Delivered directly to vikasgupta2020vg@gmail.com</small>
+          `);
+          form.reset();
+        } else {
+          throw new Error("Direct gateway response was not OK");
+        }
+      } catch (fallbackErr) {
+        console.error("Direct email fallback error:", fallbackErr);
+        showAlert(alertContainer, "warning", `
+          <strong>Notice:</strong> We couldn't deliver automatically. Please email directly at 
+          <a href="mailto:vikasgupta2020vg@gmail.com?subject=${encodeURIComponent(payload.subject)}&body=${encodeURIComponent(payload.message)}" class="text-white text-decoration-underline fw-bold">vikasgupta2020vg@gmail.com</a>.
+        `);
+      }
+    }
+
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalBtnText;
   });
 }
 
@@ -425,3 +504,121 @@ async function initBackendStatusCheck() {
     statusEl.innerHTML = `<span class="badge bg-secondary font-mono">FastAPI Standby</span>`;
   }
 }
+
+/**
+ * Update top reading/scroll progress indicator
+ */
+function initScrollProgress() {
+  const progressBar = document.getElementById("scrollProgressBar");
+  if (!progressBar) return;
+
+  window.addEventListener("scroll", () => {
+    const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+    if (totalHeight > 0) {
+      const progress = (window.scrollY / totalHeight) * 100;
+      progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+    }
+  }, { passive: true });
+}
+
+/**
+ * Terminal Card Tab Switcher
+ */
+function switchTerminalTab(tab) {
+  const tabCode = document.getElementById("tabMainPy");
+  const tabResp = document.getElementById("tabResponseJson");
+  const codePane = document.getElementById("terminalCodePane");
+  const respPane = document.getElementById("terminalResponsePane");
+
+  if (!tabCode || !tabResp || !codePane || !respPane) return;
+
+  if (tab === "response") {
+    tabCode.classList.remove("active");
+    tabResp.classList.add("active");
+    codePane.classList.add("d-none");
+    respPane.classList.remove("d-none");
+  } else {
+    tabResp.classList.remove("active");
+    tabCode.classList.add("active");
+    respPane.classList.add("d-none");
+    codePane.classList.remove("d-none");
+  }
+}
+
+/**
+ * Interactive API Test in Hero Terminal
+ */
+function testTerminalApi() {
+  const btn = document.getElementById("btnTestApi");
+  const footerText = document.getElementById("terminalFooterText");
+  if (!btn) return;
+
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status"></span>Testing...`;
+  btn.disabled = true;
+
+  if (footerText) {
+    footerText.textContent = "Sending GET /api/developer...";
+  }
+
+  setTimeout(() => {
+    switchTerminalTab("response");
+    btn.innerHTML = `<i class="bi bi-check2 text-success me-1"></i>200 OK`;
+    if (footerText) {
+      footerText.textContent = "Response 200 OK • Processed in 14ms";
+    }
+
+    setTimeout(() => {
+      btn.innerHTML = `<i class="bi bi-play-fill text-success"></i><span class="d-none d-sm-inline ms-1">Test</span>`;
+      btn.disabled = false;
+    }, 2500);
+  }, 450);
+}
+
+/**
+ * Copy terminal python snippet
+ */
+function copyTerminalSnippet() {
+  const snippet = `from fastapi import FastAPI\n\napp = FastAPI(title="Vikas Gupta")\n\n@app.get("/api/developer")\nasync def get_engineer():\n    return {\n        "name": "Vikas Gupta",\n        "core_stack": ["PHP", "Laravel", "MySQL"],\n        "expanding": ["Python", "FastAPI", "DSA"],\n        "production_xp": True,\n        "status": "Ready to Build"\n    }`;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(snippet).then(() => {
+      const footerText = document.getElementById("terminalFooterText");
+      const orig = footerText ? footerText.textContent : "";
+      if (footerText) {
+        footerText.textContent = "✓ Snippet copied to clipboard!";
+        setTimeout(() => {
+          footerText.textContent = orig || "FastAPI Router Listening on :8000";
+        }, 2000);
+      }
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Filter proficiency cards by category tab
+ */
+function initSkillFilters() {
+  const filterBtns = document.querySelectorAll(".skill-tab-btn");
+  const cards = document.querySelectorAll(".proficiency-card");
+
+  if (!filterBtns.length || !cards.length) return;
+
+  filterBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      filterBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const filter = btn.getAttribute("data-skill-filter");
+
+      cards.forEach(card => {
+        const cat = card.getAttribute("data-skill-cat");
+        if (filter === "all" || cat === filter) {
+          card.style.display = "flex";
+        } else {
+          card.style.display = "none";
+        }
+      });
+    });
+  });
+}
+

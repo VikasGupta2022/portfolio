@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.contact import ContactCreate, ContactResponse
 from app.services.contact_service import save_contact_message
+from app.services.email_service import send_email_notification
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/contact", tags=["Contact"])
     response_model=ContactResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Submit Contact Inquiry",
-    description="Validates and persists a contact inquiry from the portfolio website into the database."
+    description="Validates, persists, and dispatches an email notification for a contact inquiry from the portfolio website."
 )
 async def submit_contact(
     contact_data: ContactCreate,
@@ -26,13 +27,25 @@ async def submit_contact(
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")[:255]
 
-        # Save to database
+        # 1. Save to database
         saved_contact = save_contact_message(
             db=db,
             contact_in=contact_data,
             ip_address=client_ip,
             user_agent=user_agent
         )
+
+        # 2. Dispatch real email notification to Vikas's inbox via Gmail SMTP
+        try:
+            send_email_notification(
+                name=contact_data.name,
+                email=contact_data.email,
+                subject=contact_data.subject,
+                message=contact_data.message,
+                ip=client_ip
+            )
+        except Exception as email_err:
+            logger.warning(f"Notice: Email dispatch issue (database record #{saved_contact.id} saved): {email_err}")
 
         return ContactResponse(
             success=True,
